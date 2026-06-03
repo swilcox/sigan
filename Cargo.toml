@@ -2,8 +2,14 @@
 name = "sigan"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+authors = ["Steven Wilcox"]
 description = "A Rust command-line time tracker compatible with sigye file storage."
 license = "MIT"
+repository = "https://github.com/swilcox/sigan"
+readme = "README.md"
+categories = ["command-line-utilities"]
+keywords = ["time-tracking", "cli", "sigye"]
 
 [dependencies]
 anyhow = "1.0"

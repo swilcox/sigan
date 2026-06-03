@@ -6,7 +6,7 @@ It is a new project inspired by `sigye`, with a new name and config system, whil
 
 ## Status
 
-Prototype, but working:
+Usable and under active development. `sigan` supports the core daily time-tracking workflow:
 
 - Start/stop/status/list/delete/export
 - Edit entries in `$EDITOR`
@@ -18,14 +18,21 @@ Prototype, but working:
 - Auto-tag rules from config
 - Legacy `sigye` file-shape compatibility
 
-Not implemented:
+Still planned or intentionally deferred:
 
-- SQLite storage
+- SQLite storage is intentionally out of scope for now
 - Shell completions
-- Installer/package metadata beyond Cargo
 - Full exact output parity with Python `sigye`
 
-## Install/Run Locally
+## Install
+
+Install from crates.io:
+
+```sh
+cargo install sigan
+```
+
+Run from a local checkout:
 
 ```sh
 cargo run -- list all
@@ -40,7 +47,7 @@ cargo run -- -o json list all
 cargo run -- --delta-format human list all
 ```
 
-Build a binary:
+Build a local release binary:
 
 ```sh
 cargo build --release
@@ -184,4 +191,4 @@ Current test coverage includes:
 - Consider a config inspection command, e.g. `sigan config path`
 - Consider shell completions
 - Decide whether SQLite compatibility should be added later
-- Improve packaging for Homebrew/Cargo install
+- Improve packaging beyond Cargo, such as Homebrew

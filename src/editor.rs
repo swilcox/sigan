@@ -67,16 +67,7 @@ impl ShellEditor {
             EditFormat::Yaml => {
                 serde_yaml::to_string(entry).context("serializing entry for YAML editing")
             }
-            EditFormat::Toml => {
-                let value = serde_json::to_value(entry)?;
-                let mut value = json_to_toml_value(value)?;
-                if let toml::Value::Table(table) = &mut value {
-                    table
-                        .entry("end_time")
-                        .or_insert_with(|| toml::Value::String("null".to_string()));
-                }
-                toml::to_string_pretty(&value).context("serializing entry for TOML editing")
-            }
+            EditFormat::Toml => format_toml_entry(entry),
         }
     }
 
@@ -94,6 +85,60 @@ impl ShellEditor {
     }
 }
 
+fn format_toml_entry(entry: &TimeEntry) -> Result<String> {
+    let fields = [
+        ("id", toml::Value::String(entry.id.clone())),
+        (
+            "start_time",
+            toml::Value::String(entry.start_time.to_rfc3339()),
+        ),
+        (
+            "end_time",
+            toml::Value::String(
+                entry
+                    .end_time
+                    .map(|time| time.to_rfc3339())
+                    .unwrap_or_else(|| "null".to_string()),
+            ),
+        ),
+        ("project", toml::Value::String(entry.project.clone())),
+        ("comment", toml::Value::String(entry.comment.clone())),
+        (
+            "tags",
+            toml::Value::Array(
+                entry
+                    .tags
+                    .iter()
+                    .cloned()
+                    .map(toml::Value::String)
+                    .collect(),
+            ),
+        ),
+    ];
+
+    let mut content = String::new();
+    for (field, value) in fields {
+        content.push_str(field);
+        content.push_str(" = ");
+        content.push_str(&format_toml_value(value)?);
+        content.push('\n');
+    }
+    Ok(content)
+}
+
+fn format_toml_value(value: toml::Value) -> Result<String> {
+    let mut table = toml::Table::new();
+    table.insert("value".to_string(), value);
+    let content = toml::to_string_pretty(&toml::Value::Table(table))
+        .context("serializing entry for TOML editing")?;
+
+    content
+        .trim_end()
+        .split_once(" = ")
+        .map(|(_, value)| value.to_string())
+        .ok_or_else(|| anyhow!("serialized TOML value did not contain assignment"))
+}
+
 fn remove_toml_null_end_time(value: &mut toml::Value) {
     let toml::Value::Table(table) = value else {
         return;
@@ -101,35 +146,6 @@ fn remove_toml_null_end_time(value: &mut toml::Value) {
     if table.get("end_time").and_then(toml::Value::as_str) == Some("null") {
         table.remove("end_time");
     }
-}
-
-fn json_to_toml_value(value: Value) -> Result<toml::Value> {
-    Ok(match value {
-        Value::Null => toml::Value::String("null".to_string()),
-        Value::Bool(value) => toml::Value::Boolean(value),
-        Value::Number(value) => {
-            if let Some(value) = value.as_i64() {
-                toml::Value::Integer(value)
-            } else if let Some(value) = value.as_f64() {
-                toml::Value::Float(value)
-            } else {
-                return Err(anyhow!("unsupported JSON number"));
-            }
-        }
-        Value::String(value) => toml::Value::String(value),
-        Value::Array(values) => toml::Value::Array(
-            values
-                .into_iter()
-                .map(json_to_toml_value)
-                .collect::<Result<Vec<_>>>()?,
-        ),
-        Value::Object(values) => toml::Value::Table(
-            values
-                .into_iter()
-                .map(|(key, value)| Ok((key, json_to_toml_value(value)?)))
-                .collect::<Result<toml::Table>>()?,
-        ),
-    })
 }
 
 fn toml_to_json_value(value: toml::Value) -> Value {
@@ -192,5 +208,31 @@ comment = "editing"
         let content = editor.format_entry(&entry).unwrap();
         let parsed = editor.parse_entry(&content).unwrap();
         assert_eq!(parsed, entry);
+    }
+
+    #[test]
+    fn toml_editor_format_uses_entry_field_order() {
+        let editor = ShellEditor::new("true".to_string(), EditFormat::Toml);
+        let entry = TimeEntry {
+            id: "abc123".to_string(),
+            start_time: Local.with_ymd_and_hms(2026, 6, 1, 9, 0, 0).unwrap(),
+            end_time: None,
+            project: "demo".to_string(),
+            tags: BTreeSet::from(["work".to_string()]),
+            comment: "editing".to_string(),
+        };
+
+        let content = editor.format_entry(&entry).unwrap();
+        let fields = content
+            .lines()
+            .filter_map(|line| line.split_once(" = ").map(|(field, _)| field))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            fields,
+            ["id", "start_time", "end_time", "project", "comment", "tags"]
+        );
+        assert!(content.contains("end_time = \"null\""));
+        assert_eq!(editor.parse_entry(&content).unwrap(), entry);
     }
 }

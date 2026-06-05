@@ -453,31 +453,87 @@ fn render_tabled_ansi_many_with_width(
     ));
     let mut table = builder.build();
     table.with(tabled_theme(options, &horizontal_lines));
-    apply_tabled_list_width(&mut table, table_width);
+    apply_tabled_list_width(&mut table, options, entries, table_width);
     with_centered_title(table.to_string(), translate(options.locale, "Time Records"))
 }
 
-fn apply_tabled_list_width(table: &mut tabled::Table, table_width: usize) {
+fn apply_tabled_list_width(
+    table: &mut tabled::Table,
+    options: OutputOptions,
+    entries: &[TimeEntry],
+    table_width: usize,
+) {
     let table_width = table_width.max(1);
-    let comments_width = comment_column_width(table_width);
+    let widths = list_column_widths(options, entries, table_width);
 
     table
-        .with(Modify::new(Columns::one(4)).with(TabledWidth::wrap(12).keep_words(true)))
-        .with(Modify::new(Columns::one(5)).with(TabledWidth::wrap(comments_width).keep_words(true)))
-        .with(Modify::new(Columns::one(6)).with(TabledWidth::wrap(10).keep_words(true)))
+        .with(Modify::new(Columns::one(4)).with(TabledWidth::wrap(widths.project).keep_words(true)))
+        .with(
+            Modify::new(Columns::one(5)).with(TabledWidth::wrap(widths.comments).keep_words(true)),
+        )
+        .with(Modify::new(Columns::one(6)).with(TabledWidth::wrap(widths.tags).keep_words(true)))
         .with(TabledWidth::wrap(table_width));
 }
 
-fn comment_column_width(table_width: usize) -> usize {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ListColumnWidths {
+    project: usize,
+    comments: usize,
+    tags: usize,
+}
+
+fn list_column_widths(
+    options: OutputOptions,
+    entries: &[TimeEntry],
+    table_width: usize,
+) -> ListColumnWidths {
     const LIST_COLUMNS: usize = 7;
     const CELL_PADDING: usize = LIST_COLUMNS * 2;
     const VERTICAL_BORDERS: usize = LIST_COLUMNS + 1;
-    const FIXED_CONTENT_WIDTH: usize = 4 + 10 + 8 + 9 + 12 + 10;
+    const FIXED_CONTENT_WIDTH: usize = 4 + 10 + 8 + 9;
+    const PROJECT_MAX: usize = 30;
+    const TAGS_MAX: usize = 32;
+    const COMMENTS_MIN: usize = 4;
+    const COMMENTS_MAX: usize = 72;
 
-    let minimum = if table_width < 80 { 4 } else { 12 };
-    table_width
-        .saturating_sub(CELL_PADDING + VERTICAL_BORDERS + FIXED_CONTENT_WIDTH)
-        .clamp(minimum, 72)
+    let project_min = translate(options.locale, "project").chars().count();
+    let tags_min = translate(options.locale, "tags").chars().count();
+    let mut project = entries
+        .iter()
+        .map(|entry| entry.project.chars().count())
+        .max()
+        .unwrap_or(project_min)
+        .max(project_min)
+        .clamp(project_min, PROJECT_MAX);
+    let mut tags = entries
+        .iter()
+        .map(|entry| entry.tags.iter().cloned().collect::<Vec<_>>().join(", "))
+        .map(|tags| tags.chars().count())
+        .max()
+        .unwrap_or(tags_min)
+        .max(tags_min)
+        .clamp(tags_min, TAGS_MAX);
+
+    let available =
+        table_width.saturating_sub(CELL_PADDING + VERTICAL_BORDERS + FIXED_CONTENT_WIDTH);
+    let mut overflow = (project + tags + COMMENTS_MIN).saturating_sub(available);
+
+    let tags_shrink = overflow.min(tags.saturating_sub(tags_min));
+    tags -= tags_shrink;
+    overflow -= tags_shrink;
+
+    let project_shrink = overflow.min(project.saturating_sub(project_min));
+    project -= project_shrink;
+
+    let comments = available
+        .saturating_sub(project + tags)
+        .clamp(COMMENTS_MIN, COMMENTS_MAX);
+
+    ListColumnWidths {
+        project,
+        comments,
+        tags,
+    }
 }
 
 fn render_tabled_two_column(
@@ -1001,6 +1057,54 @@ mod tests {
             visible.lines().all(|line| line.chars().count() <= 70),
             "{rendered}"
         );
+    }
+
+    #[test]
+    fn list_keeps_short_project_names_together_before_wrapping_comments() {
+        let options = OutputOptions {
+            delta_format: DeltaFormat::DecimalHours,
+            table_style: TableStyle::Utf8Condensed,
+            table_inner_borders: TableInnerBorders::Solid,
+            locale: Locale::English,
+        };
+        let mut entry = finished_entry();
+        entry.project = "edge:research".to_string();
+        entry.comment =
+            "comment text can wrap when project and tag fields need their natural width"
+                .to_string();
+
+        let rendered = render_tabled_ansi_many_with_width(options, &[entry], 80);
+        let visible = strip_ansi(&rendered);
+
+        assert!(
+            visible.lines().all(|line| line.chars().count() <= 80),
+            "{rendered}"
+        );
+        assert!(visible.contains("edge:research"), "{rendered}");
+        assert!(!visible.contains("edge:researc\nh"), "{rendered}");
+    }
+
+    #[test]
+    fn list_keeps_tags_together_when_width_allows() {
+        let options = OutputOptions {
+            delta_format: DeltaFormat::DecimalHours,
+            table_style: TableStyle::Utf8Condensed,
+            table_inner_borders: TableInnerBorders::Solid,
+            locale: Locale::English,
+        };
+        let mut entry = finished_entry();
+        entry.project = "edge:research".to_string();
+        entry.tags = BTreeSet::from(["billable".to_string(), "research".to_string()]);
+        entry.comment = "comments get leftover room".to_string();
+
+        let rendered = render_tabled_ansi_many_with_width(options, &[entry], 100);
+        let visible = strip_ansi(&rendered);
+
+        assert!(
+            visible.lines().all(|line| line.chars().count() <= 100),
+            "{rendered}"
+        );
+        assert!(visible.contains("billable, research"), "{rendered}");
     }
 
     fn finished_entry() -> TimeEntry {

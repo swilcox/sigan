@@ -16,12 +16,13 @@ Usable and under active development. `sigan` supports the core daily time-tracki
 - Decimal/tenths-of-hour and human delta formats
 - Configurable ANSI table style and Korean output labels
 - Auto-tag rules from config
+- Colored `--help` output
+- Shell completion scripts for bash, zsh, fish, PowerShell, and elvish
 - Legacy `sigye` file-shape compatibility
 
 Still planned or intentionally deferred:
 
 - SQLite storage is intentionally out of scope for now
-- Shell completions
 - Full exact output parity with Python `sigye`
 
 ## Install
@@ -132,13 +133,12 @@ sigan start <project> [comment] [--tag TAG] [--start-time HH:MM]
 sigan stop [comment] [--stop-time HH:MM]
 sigan status
 sigan list [today|yesterday|week|month|all]
-sigan ls [today|yesterday|week|month|all]
 sigan delete <id-prefix>
-sigan rm <id-prefix>
-sigan del <id-prefix>
 sigan edit <id-prefix>
 sigan export <filename>
 ```
+
+`list` has the alias `ls`, and `delete` has the aliases `rm` and `del`. These are shown in `sigan --help`.
 
 With no period, `list` shows today's entries. If an active entry started before today, `list` includes entries from that active entry's date through today.
 
@@ -151,6 +151,31 @@ sigan list --start-date 2026-06-01 --end-date 2026-06-02
 ```
 
 Project filters ending in `*`, `+`, or `.` are prefix matches.
+
+## Shell Completions
+
+Generate a completion script with `--completion <SHELL>`, where `<SHELL>` is one
+of `bash`, `zsh`, `fish`, `powershell`, or `elvish`. The script is written to
+stdout, so redirect it to the location your shell loads completions from:
+
+```sh
+# bash
+sigan --completion bash > /usr/local/etc/bash_completion.d/sigan
+
+# zsh (a directory on your $fpath)
+sigan --completion zsh > ~/.zsh/completions/_sigan
+
+# fish
+sigan --completion fish > ~/.config/fish/completions/sigan.fish
+```
+
+Restart your shell, or re-source the file, to pick up the completions.
+
+## Help Output
+
+`sigan --help` (and `--help` on any subcommand) prints colored help. Color is
+emitted only when writing to a terminal and honors the `NO_COLOR` and
+`CLICOLOR_FORCE` environment variables.
 
 ## Storage Format
 
@@ -189,6 +214,5 @@ Current test coverage includes:
 
 - Add integration tests for CLI stdout/stderr and exit codes
 - Consider a config inspection command, e.g. `sigan config path`
-- Consider shell completions
 - Decide whether SQLite compatibility should be added later
 - Improve packaging beyond Cargo, such as Homebrew

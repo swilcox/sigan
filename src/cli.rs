@@ -11,20 +11,36 @@ use crate::storage::TimeEntryRepository;
 use crate::storage::file::FileRepository;
 use anyhow::{Result, anyhow};
 use chrono::NaiveDate;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::builder::styling::{AnsiColor, Styles};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::{Shell, generate};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+
+/// Colored styling for `--help` output.
+const HELP_STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Green.on_default().bold())
+    .usage(AnsiColor::Green.on_default().bold())
+    .literal(AnsiColor::Cyan.on_default().bold())
+    .placeholder(AnsiColor::Cyan.on_default());
 
 #[derive(Debug, Parser)]
 #[command(name = "sigan")]
 #[command(about = "Track time from the command line.")]
+#[command(styles = HELP_STYLES)]
 struct Cli {
+    #[arg(
+        long = "completion",
+        value_name = "SHELL",
+        help = "Generate a shell completion script and exit"
+    )]
+    completion: Option<Shell>,
     #[arg(short = 'c', long = "config-file")]
     config_file: Option<PathBuf>,
     #[arg(short = 'f', long = "filename")]
     filename: Option<PathBuf>,
-    #[arg(short = 'o', long = "output", alias = "output_format")]
-    output: Option<String>,
+    #[arg(short = 'o', long = "output", alias = "output_format", value_enum)]
+    output: Option<OutputFormat>,
     #[arg(long = "delta-format", alias = "delta_format")]
     delta_format: Option<String>,
     #[arg(long = "table-style", alias = "table_style")]
@@ -34,7 +50,7 @@ struct Cli {
     #[arg(long = "locale")]
     locale: Option<String>,
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -55,7 +71,7 @@ enum Command {
         stop_time: Option<String>,
     },
     Status,
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         #[arg(value_enum)]
         time_period: Option<PeriodArg>,
@@ -68,7 +84,7 @@ enum Command {
         #[arg(long = "project")]
         projects: Vec<String>,
     },
-    #[command(alias = "rm", alias = "del")]
+    #[command(visible_alias = "rm", visible_alias = "del")]
     Delete {
         id: String,
     },
@@ -99,12 +115,25 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     let cli = Cli::parse_from(args);
+
+    if let Some(shell) = cli.completion {
+        let mut cmd = Cli::command();
+        let name = cmd.get_name().to_string();
+        generate(shell, &mut cmd, name, &mut std::io::stdout());
+        return Ok(());
+    }
+
+    let command = match cli.command {
+        Some(command) => command,
+        None => {
+            Cli::command().print_help()?;
+            return Ok(());
+        }
+    };
+
     let mut config = Config::load(cli.config_file)?;
     if let Some(filename) = cli.filename {
         config.data_filename = filename;
-    }
-    if let Some(output) = cli.output {
-        config.output = output;
     }
     if let Some(delta_format) = cli.delta_format {
         config.delta_format = delta_format;
@@ -118,7 +147,10 @@ where
     if let Some(locale) = cli.locale {
         config.locale = locale;
     }
-    let output = OutputFormat::parse(&config.output)?;
+    let output = match cli.output {
+        Some(output) => output,
+        None => OutputFormat::parse(&config.output)?,
+    };
     let options = OutputOptions {
         delta_format: DeltaFormat::parse(&config.delta_format)?,
         table_style: TableStyle::parse(&config.table_style)?,
@@ -128,7 +160,7 @@ where
     let repository = FileRepository::new(&config.data_filename)?;
     let mut service = TimeTrackingService::new(repository);
 
-    match cli.command {
+    match command {
         Command::Start {
             project,
             comment,

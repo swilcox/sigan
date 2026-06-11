@@ -1,5 +1,6 @@
 use crate::models::TimeEntry;
 use anyhow::{Result, anyhow};
+use clap::ValueEnum;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use tabled::{
@@ -10,13 +11,15 @@ use tabled::{
     },
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
+    #[value(alias = "rich")]
     Ansi,
     Text,
     Json,
     Yaml,
     Csv,
+    #[value(alias = "md")]
     Markdown,
 }
 
